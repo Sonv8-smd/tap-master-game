@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TAP MASTER — Dynamic</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{
+    margin:0; min-height:100vh; font-family:Arial,sans-serif;
+    background:linear-gradient(145deg,#07111f,#102a43 55%,#07111f);
+    color:white; display:flex; justify-content:center; align-items:center;
+    overflow:hidden;
+  }
+  .app{width:min(96vw,520px); padding:14px}
+  h1{margin:4px 0 2px;text-align:center;font-size:32px;letter-spacing:2px}
+  .sub{text-align:center;color:#9ec9ff;margin-bottom:12px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:10px}
+  .stat{background:#122238;border:1px solid #2b4b6d;border-radius:12px;padding:8px 4px;text-align:center}
+  .label{font-size:11px;color:#9db5cc}.value{font-size:19px;font-weight:bold;margin-top:2px}
+  #arena{
+    height:min(68vh,500px); min-height:360px; position:relative; overflow:hidden;
+    background:radial-gradient(circle at center,#183b5d,#091522 70%);
+    border:2px solid #315a7e;border-radius:20px;box-shadow:0 0 35px #0008;
+    touch-action:manipulation;
+  }
+  #target{
+    position:absolute;border:0;border-radius:50%;width:82px;height:82px;
+    background:radial-gradient(circle at 35% 30%,#fff,#52c7ff 20%,#087fff 65%,#0046a3);
+    box-shadow:0 0 18px #22aaff,0 0 42px #008cff88;
+    color:white;font-size:22px;font-weight:900;
+    display:none;cursor:pointer;touch-action:manipulation;
+    transition:left .08s linear,top .08s linear,width .12s,height .12s;
+  }
+  #target:active{transform:scale(.86)}
+  .controls{display:flex;gap:8px;margin-top:10px}
+  button.ctrl{
+    flex:1;border:0;border-radius:12px;padding:13px;font-weight:bold;font-size:15px;
+    background:#1e79d8;color:white;touch-action:manipulation;
+  }
+  button.ctrl:active{transform:scale(.97)}
+  #sound{background:#26394d}
+  #overlay{
+    position:absolute;inset:0;background:#06101dcc;display:flex;align-items:center;
+    justify-content:center;text-align:center;padding:25px;backdrop-filter:blur(4px);
+  }
+  .card{background:#10243a;border:1px solid #37648b;border-radius:18px;padding:22px;width:88%}
+  .card h2{margin:0 0 8px;font-size:27px}
+  .card p{color:#bdd2e7;line-height:1.45}
+  .hidden{display:none!important}
+  .flash{animation:flash .18s}
+  @keyframes flash{50%{filter:brightness(1.8)}}
+  .levelup{animation:levelup .45s}
+  @keyframes levelup{50%{box-shadow:0 0 55px #00d9ff,0 0 100px #0077ff}}
+  .danger{animation:pulse .5s infinite alternate}
+  @keyframes pulse{to{border-color:#ff4d6d;box-shadow:0 0 25px #ff315588}}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>⚡ TAP MASTER</h1>
+  <div class="sub">Dynamic Edition</div>
+
+  <div class="stats">
+    <div class="stat"><div class="label">SCORE</div><div id="score" class="value">0</div></div>
+    <div class="stat"><div class="label">NIVEAU</div><div id="level" class="value">1</div></div>
+    <div class="stat"><div class="label">TEMPS</div><div id="time" class="value">30</div></div>
+    <div class="stat"><div class="label">RECORD</div><div id="best" class="value">0</div></div>
+  </div>
+
+  <div id="arena">
+    <button id="target" aria-label="Cible">TAP</button>
+    <div id="overlay">
+      <div class="card">
+        <h2>🚀 Prêt ?</h2>
+        <p>Tape la cible le plus vite possible.<br>
+        À chaque niveau, le jeu devient plus rapide et la cible plus petite.</p>
+        <button class="ctrl" id="start">▶ JOUER</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="ctrl" id="restart">↻ RECOMMENCER</button>
+    <button class="ctrl" id="sound">🔊 SON ON</button>
+  </div>
+</div>
+
+<script>
+let score=0, best=Number(localStorage.getItem('tapMasterBest')||0);
+let level=1, timeLeft=30, playing=false, timer=null, soundOn=true;
+let audioCtx=null, lastTap=0;
+
+const arena=document.getElementById('arena');
+const target=document.getElementById('target');
+const overlay=document.getElementById('overlay');
+const scoreEl=document.getElementById('score');
+const levelEl=document.getElementById('level');
+const timeEl=document.getElementById('time');
+const bestEl=document.getElementById('best');
+bestEl.textContent=best;
+
+function audio(){
+  if(!soundOn) return;
+  if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+}
+function tone(freq,dur,type='sine',vol=.055){
+  if(!soundOn)return;
+  audio();
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type=type;o.frequency.value=freq;g.gain.value=vol;
+  o.connect(g);g.connect(audioCtx.destination);
+  const now=audioCtx.currentTime;
+  g.gain.setValueAtTime(vol,now);g.gain.exponentialRampToValueAtTime(.001,now+dur);
+  o.start(now);o.stop(now+dur);
+}
+function tapSound(){
+  tone(500+level*35,.06,'square',.045);
+  setTimeout(()=>tone(760+level*40,.055,'sine',.035),25);
+}
+function levelSound(){
+  [520,660,820,1040].forEach((f,i)=>setTimeout(()=>tone(f,.13,'triangle',.07),i*75));
+}
+function endSound(){
+  [500,380,260].forEach((f,i)=>setTimeout(()=>tone(f,.18,'sawtooth',.05),i*120));
+}
+
+function sizeForLevel(){
+  return Math.max(38,82-(level-1)*7);
+}
+function placeTarget(){
+  const s=sizeForLevel();
+  target.style.width=s+'px'; target.style.height=s+'px';
+  target.style.fontSize=Math.max(12,s*.27)+'px';
+  const maxX=Math.max(1,arena.clientWidth-s-8);
+  const maxY=Math.max(1,arena.clientHeight-s-8);
+  target.style.left=(4+Math.random()*maxX)+'px';
+  target.style.top=(4+Math.random()*maxY)+'px';
+  target.style.display='block';
+}
+function update(){
+  scoreEl.textContent=score;
+  levelEl.textContent=level;
+  timeEl.textContent=timeLeft;
+  bestEl.textContent=best;
+}
+function begin(){
+  audio(); score=0;level=1;timeLeft=30;playing=true;
+  overlay.classList.add('hidden'); arena.classList.remove('danger','levelup');
+  update();placeTarget();
+  clearInterval(timer);
+  timer=setInterval(()=>{
+    if(!playing)return;
+    timeLeft--;update();
+    if(timeLeft<=5)arena.classList.add('danger');
+    if(timeLeft<=0)finish();
+  },1000);
+}
+function finish(){
+  playing=false;clearInterval(timer);target.style.display='none';
+  arena.classList.remove('danger');endSound();
+  if(score>best){best=score;localStorage.setItem('tapMasterBest',best);}
+  update();
+  overlay.classList.remove('hidden');
+  overlay.querySelector('.card').innerHTML=
+    '<h2>🏁 FIN DE PARTIE</h2>'+
+    '<p>Score : <b>'+score+'</b><br>Niveau atteint : <b>'+level+'</b><br>Record : <b>'+best+'</b></p>'+
+    '<button class="ctrl" id="again">▶ REJOUER</button>';
+  document.getElementById('again').addEventListener('click',begin);
+}
+function hit(e){
+  if(e) e.preventDefault();
+  if(!playing)return;
+  const now=Date.now();
+  if(now-lastTap<70)return;
+  lastTap=now;
+  score++;
+  tapSound();
+  // Tous les 8 taps: niveau supérieur
+  const newLevel=Math.floor(score/8)+1;
+  if(newLevel>level){
+    level=newLevel;levelSound();
+    arena.classList.remove('levelup');void arena.offsetWidth;arena.classList.add('levelup');
+    setTimeout(()=>arena.classList.remove('levelup'),450);
+    timeLeft=Math.min(30,timeLeft+2); // bonus de temps
+  }
+  update();placeTarget();
+}
+target.addEventListener('pointerdown',hit);
+target.addEventListener('click',hit);
+document.getElementById('start').addEventListener('click',begin);
+document.getElementById('restart').addEventListener('click',begin);
+document.getElementById('sound').addEventListener('click',()=>{
+  soundOn=!soundOn;
+  document.getElementById('sound').textContent=soundOn?'🔊 SON ON':'🔇 SON OFF';
+  if(soundOn){audio();tone(700,.1,'sine',.06);}
+});
+window.addEventListener('resize',()=>{if(playing)placeTarget();});
+</script>
+</body>
+</html>
